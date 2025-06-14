@@ -109,13 +109,3 @@ func main() {
 
 }
 ```
-
-## Limitations
-
-`mlocker` reduces in-memory exposure but cannot fully prevent it:
-
-- The master key remains in locked memory until `Shutdown` is called. A memory dump that captures this key can decrypt any existing buffers.
-- `EncryptToMemory` accepts a `[]byte` which may reside on the Go heap. The slice is wiped immediately after being copied into locked memory, regardless of `ZeroPlaintext`. Use `AllocateLocked` and `EncryptLocked` to avoid heap exposure entirely.
-- Creating AES-GCM and HMAC instances allocates temporary state on the Go heap. Derived keys therefore briefly exist in GC-managed memory even though the ciphertext buffers themselves are heap-free.
-- Buffers and the master key are destroyed only when `Destroy` or `Shutdown` are invoked by the caller. Exposure time therefore depends on calling these methods promptly.
-- `SecureBuffer` operations are not synchronized. Avoid concurrent calls to `Use`, `Destroy`, or `DestroyAfter` on the same buffer, or guard them with your own mutexes.

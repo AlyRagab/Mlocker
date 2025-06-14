@@ -4,7 +4,6 @@ package mlocker
 
 import (
 	"crypto/hmac"
-	"crypto/sha256"
 	"errors"
 	"time"
 
@@ -55,20 +54,28 @@ func EncryptToMemory(data []byte) (SecureBuffer, error) {
 		return SecureBuffer{}, err
 	}
 
-	h := hmac.New(sha256.New, masterKeyBytes())
-	h.Write(saltBuf.Bytes())
-	dkBuf, err := AllocateLocked(32)
+	h, err := newHMAC(masterKeyBytes())
 	if err != nil {
 		FreeLocked(saltBuf)
 		return SecureBuffer{}, err
 	}
+	h.Write(saltBuf.Bytes())
+	dkBuf, err := AllocateLocked(32)
+	if err != nil {
+		FreeLocked(saltBuf)
+		h.Destroy()
+		return SecureBuffer{}, err
+	}
 	dk := h.Sum(dkBuf.Bytes()[:0])
-	zeroHash(h)
+	h.Destroy()
 	aead, err := newAEAD(dk)
 	if err != nil {
 		FreeLocked(saltBuf)
 		ZeroLocked(dkBuf)
 		FreeLocked(dkBuf)
+		if aead != nil {
+			aead.Destroy()
+		}
 		return SecureBuffer{}, err
 	}
 
@@ -103,18 +110,24 @@ func EncryptToMemory(data []byte) (SecureBuffer, error) {
 
 	ctSlice := buf.Bytes()[off : off+ctLen]
 	aead.Seal(ctSlice[:0], nonceSlice, ptBuf.Bytes(), nil)
-	zeroAEAD(aead)
+	aead.Destroy()
 	ZeroLocked(ptBuf)
 	FreeLocked(ptBuf)
 
 	var macSlice []byte
 	if IntegrityCheck {
 		macSlice = buf.Bytes()[off+ctLen : off+ctLen+macLen]
-		h2 := hmac.New(sha256.New, dk)
+		h2, err := newHMAC(dk)
+		if err != nil {
+			FreeLocked(buf)
+			ZeroLocked(dkBuf)
+			FreeLocked(dkBuf)
+			return SecureBuffer{}, err
+		}
 		h2.Write(nonceSlice)
 		h2.Write(ctSlice)
 		h2.Sum(macSlice[:0])
-		zeroHash(h2)
+		h2.Destroy()
 	}
 	ZeroLocked(dkBuf)
 	FreeLocked(dkBuf)
@@ -150,25 +163,34 @@ func (s *SecureBuffer) Decrypt() (*LockedBuffer, error) {
 		return nil, errors.New("buffer destroyed")
 	}
 
-	h := hmac.New(sha256.New, masterKeyBytes())
-	h.Write(s.salt)
-	dkBuf, err := AllocateLocked(32)
+	h, err := newHMAC(masterKeyBytes())
 	if err != nil {
 		return nil, err
 	}
+	h.Write(s.salt)
+	dkBuf, err := AllocateLocked(32)
+	if err != nil {
+		h.Destroy()
+		return nil, err
+	}
 	dk := h.Sum(dkBuf.Bytes()[:0])
-	zeroHash(h)
+	h.Destroy()
 	if IntegrityCheck {
-		h2 := hmac.New(sha256.New, dk)
+		h2, err := newHMAC(dk)
+		if err != nil {
+			ZeroLocked(dkBuf)
+			FreeLocked(dkBuf)
+			return nil, err
+		}
 		h2.Write(s.nonce)
 		h2.Write(s.ciphertext)
 		if !hmac.Equal(h2.Sum(nil), s.mac) {
 			ZeroLocked(dkBuf)
 			FreeLocked(dkBuf)
-			zeroHash(h2)
+			h2.Destroy()
 			return nil, errors.New("integrity check failed")
 		}
-		zeroHash(h2)
+		h2.Destroy()
 	}
 
 	aead, err := newAEAD(dk)
@@ -184,7 +206,7 @@ func (s *SecureBuffer) Decrypt() (*LockedBuffer, error) {
 	}
 	ptSlice := ptBuf.Bytes()
 	decrypted, err := aead.Open(ptSlice[:0], s.nonce, s.ciphertext, nil)
-	zeroAEAD(aead)
+	aead.Destroy()
 	if err != nil {
 		Zero(ptSlice)
 		FreeLocked(ptBuf)
@@ -238,21 +260,30 @@ func (s *SecureBuffer) Destroy() error {
 
 	var integrityErr error
 	if IntegrityCheck {
-		h := hmac.New(sha256.New, masterKeyBytes())
-		h.Write(s.salt)
-		dkBuf, err := AllocateLocked(32)
+		h, err := newHMAC(masterKeyBytes())
 		if err != nil {
 			return err
 		}
+		h.Write(s.salt)
+		dkBuf, err := AllocateLocked(32)
+		if err != nil {
+			h.Destroy()
+			return err
+		}
 		dk := h.Sum(dkBuf.Bytes()[:0])
-		zeroHash(h)
-		hmacCheck := hmac.New(sha256.New, dk)
+		h.Destroy()
+		hmacCheck, err := newHMAC(dk)
+		if err != nil {
+			ZeroLocked(dkBuf)
+			FreeLocked(dkBuf)
+			return err
+		}
 		hmacCheck.Write(s.nonce)
 		hmacCheck.Write(s.ciphertext)
 		if !hmac.Equal(hmacCheck.Sum(nil), s.mac) {
 			integrityErr = errors.New("integrity check failed")
 		}
-		zeroHash(hmacCheck)
+		hmacCheck.Destroy()
 		ZeroLocked(dkBuf)
 		FreeLocked(dkBuf)
 	}
