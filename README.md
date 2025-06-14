@@ -6,7 +6,7 @@ Everything is locked, Encrypted without writing to disk or exposing data to garb
 Design for modern Zero Trust systems, Mlocker ensures secrets live only in a locked memory and are wiped immediately after use.
 
 > **Note**
-> The library currently supports **Linux only** at the moment.
+> The library currently supports **Linux only**. Running `go build` or `go test` on other platforms will print "no packages" because all sources use a Linux build tag.
 
 ---
 
