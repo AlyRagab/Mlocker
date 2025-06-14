@@ -30,13 +30,21 @@ const (
 
 // EncryptToMemory encrypts data using AES-256-GCM and locks the memory.
 // EncryptToMemory encrypts the provided byte slice into a SecureBuffer.
-// If ZeroPlaintext is true, the input slice is wiped after encryption.
+// The input slice is always wiped before encryption begins, independent of
+// ZeroPlaintext.
 func EncryptToMemory(data []byte) (SecureBuffer, error) {
 	if masterKey == nil {
 		if err := Init(); err != nil {
 			return SecureBuffer{}, err
 		}
 	}
+
+	ptBuf, err := AllocateLocked(len(data))
+	if err != nil {
+		return SecureBuffer{}, err
+	}
+	copy(ptBuf.Bytes(), data)
+	Zero(data)
 
 	saltBuf, err := AllocateLocked(saltLen)
 	if err != nil {
@@ -94,11 +102,10 @@ func EncryptToMemory(data []byte) (SecureBuffer, error) {
 	off += nonceLenLocal
 
 	ctSlice := buf.Bytes()[off : off+ctLen]
-	aead.Seal(ctSlice[:0], nonceSlice, data, nil)
+	aead.Seal(ctSlice[:0], nonceSlice, ptBuf.Bytes(), nil)
 	zeroAEAD(aead)
-	if ZeroPlaintext {
-		Zero(data)
-	}
+	ZeroLocked(ptBuf)
+	FreeLocked(ptBuf)
 
 	var macSlice []byte
 	if IntegrityCheck {

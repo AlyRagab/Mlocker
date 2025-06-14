@@ -47,3 +47,16 @@ func TestEncryptDestroy(t *testing.T) {
 		t.Fatalf("destroy failed: %v", err)
 	}
 }
+
+func TestEncryptWipesPlaintext(t *testing.T) {
+	ZeroPlaintext = false
+	data := []byte("wipe-me")
+	if _, err := EncryptToMemory(data); err != nil {
+		t.Fatalf("encrypt failed: %v", err)
+	}
+	for i, v := range data {
+		if v != 0 {
+			t.Fatalf("byte %d not zeroed", i)
+		}
+	}
+}

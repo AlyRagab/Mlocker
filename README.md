@@ -1,12 +1,11 @@
-# Mlocker
-Mlocker is a minimal, high-assurance memory security library for Go. It provides locked, encrypted, and zeroed memory buffers for safely handling secrets like passwords, access tokens, cryptographic keys, and session credentials.
+# mlocker
 
-Everything is locked, Encrypted without writing to disk or exposing data to garbage collection or memory dumps.
-
-Design for modern Zero Trust systems, Mlocker ensures secrets live only in a locked memory and are wiped immediately after use.
+**mlocker** is a minimal, high-assurance memory security library for Go. It provides locked, encrypted, and zeroed memory buffers for safely handling secrets like passwords, access tokens, cryptographic keys, and session credentials — all without writing anything to disk or exposing data to garbage collection or memory dumps.
 
 > **Note**
 > The library currently supports **Linux only**. Running `go build` or `go test` on other platforms will print "no packages" because all sources use a Linux build tag.
+
+Designed for modern Zero Trust systems, `mlocker` ensures secrets live only in a locked memory and are wiped immediately after use.
 
 ---
 
@@ -111,3 +110,12 @@ func main() {
 }
 ```
 
+## Limitations
+
+`mlocker` reduces in-memory exposure but cannot fully prevent it:
+
+- The master key remains in locked memory until `Shutdown` is called. A memory dump that captures this key can decrypt any existing buffers.
+- `EncryptToMemory` accepts a `[]byte` which may reside on the Go heap. The slice is wiped immediately after being copied into locked memory, regardless of `ZeroPlaintext`. Use `AllocateLocked` and `EncryptLocked` to avoid heap exposure entirely.
+- Creating AES-GCM and HMAC instances allocates temporary state on the Go heap. Derived keys therefore briefly exist in GC-managed memory even though the ciphertext buffers themselves are heap-free.
+- Buffers and the master key are destroyed only when `Destroy` or `Shutdown` are invoked by the caller. Exposure time therefore depends on calling these methods promptly.
+- `SecureBuffer` operations are not synchronized. Avoid concurrent calls to `Use`, `Destroy`, or `DestroyAfter` on the same buffer, or guard them with your own mutexes.
