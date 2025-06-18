@@ -1,0 +1,35 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Run vet
+        run: go vet ./...
+        env:
+          GOOS: linux
+      - name: Run tests
+        run: go test -race ./...
+        env:
+          GOOS: linux
+      - name: Build package
+        run: go build ./...
+        env:
+          GOOS: linux
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v1
+        with:
+          generate_release_notes: true
